@@ -33,6 +33,7 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
+  function plural(n, one, many) { return n === 1 ? one : many; }
   function round4(n) { return Math.round(n * 1e4) / 1e4; }
   function median(values) {
     if (!values.length) return null;
@@ -210,6 +211,36 @@
     ].map(stepText);
   }
 
+  // The farm plan as plain text, for the copy button: one numbered line per step,
+  // headed with the protocol and the snapshot it was priced from.
+  function farmPlanText(row, steps) {
+    var lines = [row.name + ' — farm plan (Token Radar, snapshot ' + DATA.as_of + ')'];
+    steps.forEach(function (s, i) { lines.push((i + 1) + '. ' + s); });
+    lines.push('Implied value is a model, not a price. Not financial advice.');
+    return lines.join('\n');
+  }
+  // Copy with the Clipboard API where it exists, falling back to a hidden
+  // textarea and execCommand, which still works on older browsers and in
+  // pages served from a file. The callback reports whether it worked.
+  function copyText(text, done) {
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      done(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { fallback(); });
+    } else fallback();
+  }
+
   function readHash() {
     var hash = window.location.hash.replace(/^#/, '');
     if (!hash) return;
@@ -255,6 +286,47 @@
       if (av > bv) return state.dir;
       return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
     });
+  }
+
+  // CSV export of the rows the board is showing right now: the same filters
+  // (search, category, watchlist, tab) and the same sort order as the table.
+  // Values are quoted when they hold a comma, a quote or a newline.
+  function csvCell(v) {
+    var s = v === null || v === undefined ? '' : String(v);
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function downloadCsv(filename, text) {
+    var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function exportCsv() {
+    var live = state.tab === 'live';
+    var list = live ? DATA.live : sortedRows(rows());
+    var header = live
+      ? ['status', 'protocol', 'category', 'chains', 'tvl_usd', 'change_7d_pct', 'age_days', 'mcap_usd']
+      : ['rank', 'protocol', 'category', 'chains', 'tvl_usd', 'change_7d_pct', 'age_days', 'implied_value_usd'];
+    var lines = [header.map(csvCell).join(',')];
+    list.forEach(function (r) {
+      lines.push([
+        live ? 'live' : r.rank,
+        r.name,
+        r.category || '',
+        (r.chains || []).join('; '),
+        r.tvl_usd,
+        r.change_7d === null || r.change_7d === undefined ? '' : r.change_7d,
+        r.age_days === null || r.age_days === undefined ? '' : r.age_days,
+        live ? (r.mcap_usd === null || r.mcap_usd === undefined ? '' : r.mcap_usd) : r.implied_value_usd
+      ].map(csvCell).join(','));
+    });
+    downloadCsv('token-radar-' + (live ? 'live' : 'board') + '.csv', lines.join('\r\n') + '\r\n');
   }
 
   function header() {
@@ -309,6 +381,7 @@
       el('div', { class: 'field' }, el('label', { for: 'category', text: 'Category' }), select),
       el('label', { class: 'check', for: 'watchlist' }, watch, 'Watchlist only'),
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live)),
+      el('button', { class: 'button', type: 'button', text: 'Export CSV', onclick: exportCsv }),
       el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : DATA.live.length + ' live-token protocols' })
     );
   }
@@ -468,7 +541,7 @@
       el('h3', { text: 'Implied value' }),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
-        el('div', null, el('span', { text: 'Category multiple' }), el('b', { class: 'num', text: row.category_multiple.toFixed(3) + 'x' + (cat.live_count > 0 ? ' (' + cat.live_count + ' live comps, median ' + (cat.median_ratio === null ? 'n/a' : cat.median_ratio.toFixed(3) + 'x') + ')' : ' (no live comps, global)') })),
+        el('div', null, el('span', { text: 'Category multiple' }), el('b', { class: 'num', text: row.category_multiple.toFixed(3) + 'x' + (cat.live_count > 0 ? ' (' + cat.live_count + ' live ' + plural(cat.live_count, 'comp', 'comps') + ', median ' + (cat.median_ratio === null ? 'n/a' : cat.median_ratio.toFixed(3) + 'x') + ')' : ' (no live comps, global)') })),
         el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),
@@ -484,7 +557,32 @@
         var action = at >= 0 ? s.slice(0, at) : s;
         var tail = at >= 0 ? s.slice(at + 1) : '';
         return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
-      }))
+      })),
+      el('div', { class: 'copy-row' },
+        el('button', {
+          class: 'button', type: 'button', text: 'Copy farm plan',
+          'aria-label': 'Copy the farm plan as plain text',
+          onclick: function (e) {
+            var btn = e.currentTarget;
+            var note = btn.parentNode.querySelector('.copy-note');
+            btn.disabled = true;
+            copyText(farmPlanText(row, steps), function (ok) {
+              btn.disabled = false;
+              if (ok) {
+                btn.textContent = 'Copied';
+                if (note) note.textContent = 'Farm plan copied to the clipboard.';
+              } else if (note) {
+                note.textContent = 'Copy failed — select the steps and copy them by hand.';
+              }
+              window.setTimeout(function () {
+                btn.textContent = 'Copy farm plan';
+                if (note) note.textContent = '';
+              }, 3000);
+            });
+          }
+        }),
+        el('span', { class: 'copy-note', 'aria-live': 'polite' })
+      )
     ));
     if (typeof dialog.showModal === 'function') {
       if (!dialog.open) dialog.showModal();

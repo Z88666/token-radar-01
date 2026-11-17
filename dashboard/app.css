@@ -124,6 +124,9 @@ tbody tr[data-selected="true"] { background: rgba(61, 220, 151, 0.08); }
 .empty p { color: var(--muted); }
 .button { min-height: 36px; padding: 0 var(--step-4); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--ink); }
 .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.button:disabled { opacity: 0.55; cursor: default; }
+.copy-row { display: flex; align-items: center; gap: var(--step-3); margin-top: var(--step-4); flex-wrap: wrap; }
+.copy-note { color: var(--accent); font-size: 13px; }
 .foot { margin-top: var(--step-5); color: var(--faint); font-size: 12px; display: grid; gap: var(--step-1); }
 
 .detail {
